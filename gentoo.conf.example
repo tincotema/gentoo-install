@@ -198,7 +198,11 @@ LOCALE="C.utf8"
 # " # End of LOCALES
 # LOCALE="de_DE.utf8"
 
+################################################
+# Distro selection
 
+DISTRO="gentoo"
+# Currently implemented are gentoo and arch
 ################################################
 # Gentoo configuration
 
