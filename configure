@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 		""|"help"|"--help"|"-help"|"-h")
 			echo "Usage: $0 [config]"
-			echo "Starts the gentoo configurator. If no file is given, it defaults to 'gentoo.conf'."
+			echo "Starts the gentoo/arch configurator. If no file is given, it defaults to 'gentoo.conf'."
 			echo "If the file doesn't exist, the configurator loads default values, otherwise, the"
 			echo "the configuration is loaded into the configurator."
 			exit 0
@@ -172,6 +172,7 @@ function define_disk_layout() {
 	esac
 }
 
+DISTROS=("gentoo" "arch")
 INIT_SYSTEMS=("systemd" "OpenRC")
 ALL_GENTOO_ARCHS=("x86" "amd64" "arm" "arm64")
 
@@ -354,7 +355,7 @@ function load_default_config() {
 		#create_zfs_centric_layout swap=8GiB type=efi encrypt=true compress=zstd pool_type=standard /dev/sdX
 		create_classic_single_disk_layout swap=8GiB type=efi luks=true root_fs=ext4 /dev/sdX
 	}
-
+    DISTRO=gentoo
 	SYSTEMD=true
 
 	PORTAGE_SYNC_TYPE="git"
@@ -607,6 +608,12 @@ function menu_radiolist()  {
 function msgbox_help() {
 	dialog --msgbox "$1" "${HELP_POPUP_SIZE[@]}"
 }
+function msgbox_error()  {
+	dialog \
+		--title "Error" \
+		--msgbox "$1"\
+		"${CONFIRM_SIZE[@]}"
+}
 
 function menu_exit() {
 	if [[ $UNSAVED_CHANGES == "true" ]]; then
@@ -619,8 +626,14 @@ function menu_exit() {
 		local diag_exit="$?"
 		if [[ $diag_exit == 0 ]]; then
 			# <Save>
+			SAVE_STATUS=false
 			save "$CONFIG_FILE"
-			clear_and_exit 0
+			if [[ $SAVE_STATUS == "true" ]]; then
+				UNSAVED_CHANGES=false
+				clear_and_exit 0
+			else
+				msgbox_error "$SAVE_STATUS"
+			fi
 		elif [[ $diag_exit == 1 ]]; then
 			# <Discard>
 			clear_and_exit 0
@@ -633,7 +646,6 @@ function menu_exit() {
 		clear_and_exit 0
 	fi
 }
-
 function menu_save_as() {
 	dialog \
 		--ok-label "Save" \
@@ -643,9 +655,14 @@ function menu_save_as() {
 	local diag_exit="$?"
 	if [[ $diag_exit == 0 ]]; then
 		# <Save>
+		SAVE_STATUS=false
 		SAVE_AS_FILENAME="$dialog_out"
 		save "$SAVE_AS_FILENAME"
-		UNSAVED_CHANGES=false
+        if [[ $SAVE_STATUS == "true" ]]; then
+			UNSAVED_CHANGES=false
+		else
+            msgbox_error "$SAVE_STATUS"
+		fi
 	else
 		# Back to menu (<ESC><ESC>, <Cancel>)
 		true
@@ -754,6 +771,8 @@ MENU_ITEMS=(
 	"KEYMAP_INITRAMFS"
 	"LOCALES"
 	"LOCALE"
+	"--------"
+	"DISTRO"
 	"--------"
 	"INIT_SYSTEM"
 	"PORTAGE_SYNC_TYPE"
@@ -1149,6 +1168,26 @@ function INIT_SYSTEM_menu()  {
 	fi
 }
 
+function DISTRO_tag()   { echo "Distro"; }
+function DISTRO_label() { echo "($DISTRO)"; }
+function DISTRO_show()  { return 0; }
+function DISTRO_help()  { echo ""; }
+function DISTRO_menu()  {
+	if menu_radiolist \
+		"Select Distro" \
+		"Select the Linux Distro you want to use." \
+		"$DISTRO" \
+		"${DISTROS[@]}"
+	then
+		# Set init system
+		DISTRO="$dialog_out"
+		UNSAVED_CHANGES=true
+	else
+		# Return to menu
+		true
+	fi
+}
+
 function PORTAGE_SYNC_TYPE_tag()   { echo "Portage tree sync-type"; }
 function PORTAGE_SYNC_TYPE_label() { echo "($PORTAGE_SYNC_TYPE)"; }
 function PORTAGE_SYNC_TYPE_show()  { return 0; }
@@ -1306,6 +1345,17 @@ function save() {
 	else
 		SYSTEMD=false
 	fi
+    SAVE_STATUS=""
+    if [[ $DISTRO == "arch" ]]; then
+		if [[ $PARTITIONING_SCHEME == "zfs_centric" ]]; then
+			SAVE_STATUS="${SAVE_STATUS}Partitioning scheme 'zfs_centric' not compatible with Distro 'arch'! \n"
+		fi
+	fi
+
+    if [[ $SAVE_STATUS != "" ]]; then
+		return 1
+	fi
+
 
 	cat > "$1" <<EOF
 # vim: set ft=sh ts=4 sw=4 sts=-1 noet:
@@ -1329,6 +1379,10 @@ KEYMAP_INITRAMFS=${KEYMAP_INITRAMFS@Q}
 LOCALES=${LOCALES@Q}
 LOCALE=${LOCALE@Q}
 
+################################################
+# Distro selection
+
+DISTRO=${DISTRO@Q}
 
 ################################################
 # Gentoo configuration
@@ -1357,6 +1411,7 @@ ROOT_SSH_AUTHORIZED_KEYS=${ROOT_SSH_AUTHORIZED_KEYS@Q}
 
 I_HAVE_READ_AND_EDITED_THE_CONFIG_PROPERLY=true
 EOF
+SAVE_STATUS=true
 }
 
 trap 'clear_and_exit 130' SIGINT
