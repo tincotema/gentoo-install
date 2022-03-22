@@ -852,7 +852,7 @@ run_pacstrap() {
 		| grep -q . \
 		&& die "root directory '$ROOT_MOUNTPOINT' is not empty"
 	if [[ $IS_EFI == "true" ]]; then
-		mount_by_partuuid "$PARTITION_UUID_EFI" "$ROOT_MOUNTPOINT/boot" \
+		mount_by_id "$DISK_ID_EFI" "$ROOT_MOUNTPOINT/boot" \
 			|| die "Could not mount '$ROOT_MOUNTPOINT'/boot"
 	fi
 	einfo "Installing Archlinux with base packages"
@@ -862,6 +862,7 @@ run_pacstrap() {
 	else
 		pacstrap "$ROOT_MOUNTPOINT" openssh git base base-devel man-db man-pages reflector linux linux-firmware \
 			|| die "Could not run pacstrap at '$ROOT_MOUNTPOINT'"
+	fi
 	#TODO export not crucial packages into config
 }
 
@@ -941,6 +942,7 @@ function gentoo_chroot() {
 	einfo "Chrooting..."
 	EXECUTED_IN_CHROOT=true \
 		TMP_DIR="$TMP_DIR" \
+		DISTRO="$DISTRO" \
 		CACHED_LSBLK_OUTPUT="$CACHED_LSBLK_OUTPUT" \
 		exec chroot -- "$chroot_dir" "$GENTOO_INSTALL_REPO_DIR/scripts/dispatch_chroot.sh" "$@" \
 			|| die "Failed to chroot into '$chroot_dir'."

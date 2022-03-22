@@ -90,6 +90,9 @@ while [[ $# -gt 0 ]]; do
 		"__install_gentoo_in_chroot")
 			ACTION="__install_gentoo_in_chroot"
 			;;
+		"__install_arch_in_chroot")
+			ACTION="__install_arch_in_chroot"
+			;;
 		*) die "Invalid option '$1'" ;;
 	esac
 	shift
@@ -131,5 +134,6 @@ case "$ACTION" in
 	"chroot")  main_chroot "$CHROOT_DIR" "$@" ;;
 	"install") main_install "$@" ;;
 	"__install_gentoo_in_chroot") main_install_gentoo_in_chroot "$@" ;;
+	"__install_arch_in_chroot") main_install_arch_in_chroot "$@" ;;
 	*) die "Invalid action '$ACTION'" ;;
 esac

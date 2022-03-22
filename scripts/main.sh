@@ -76,7 +76,9 @@ function configure_base_system() {
 	fi
 
 	# Update environment
-	env_update
+	if [[ $DISTRO == "gentoo" ]]; then
+		env_update
+	fi
 }
 
 function configure_portage() {
@@ -271,7 +273,7 @@ function generate_fstab() {
 		else
 			add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_BIOS")" "/boot/bios" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
 		fi
-	elif [[$DISTRO == "arch" && $IS_EFI == "true" ]]
+	elif [[ $DISTRO == "arch" && $IS_EFI == "true" ]]; then
 		add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_EFI")" "/boot" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
 	fi
 	if [[ -v "DISK_ID_SWAP" ]]; then
@@ -439,7 +441,8 @@ function main_install_arch_in_chroot() {  #TODO
 		# Mount efi partition
 		mount_efivars
 		einfo "Mounting efi partition"
-		mount_by_id "$DISK_ID_EFI" "/boot/efi"
+		mount_by_id "$DISK_ID_EFI" "/boot"
+		try efibootmgr --verbose --create --disk "$gptdev" --part "$efipartnum" --label "arch" --loader '\vmlinuz.efi' --unicode 'initrd=\initramfs.img'" $(get_cmdline)"
 	fi
 
 	# Sync pamcan
@@ -453,19 +456,19 @@ function main_install_arch_in_chroot() {  #TODO
 	# Install mdadm if we used raid (needed for uuid resolving)
 	if [[ $USED_RAID == "true" ]]; then
 		einfo "Installing mdadm"
-		try pacman -Sy mdadm
+		try pacman -Sy --noconfirm mdadm
 	fi
 
 	# Install cryptsetup if we used luks
 	if [[ $USED_LUKS == "true" ]]; then
 		einfo "Installing cryptsetup"
-		try pacman -Sy cryptsetup
+		try pacman -Sy --noconfirm cryptsetup
 	fi
 
 	# Install btrfs-progs if we used btrfs
 	if [[ $USED_BTRFS == "true" ]]; then
 		einfo "Installing btrfs-progs"
-		try pacman -Sy btrfs-progs
+		try pacman -Sy --noconfirm btrfs-progs
 	fi
 
 	# Generate a valid fstab file
@@ -476,13 +479,10 @@ function main_install_arch_in_chroot() {  #TODO
 		install_sshd
 	fi
 
-	if [[ $SYSTEMD != "true" ]]; then
-		# Install and enable dhcpcd
-		einfo "Installing dhcpcd"
-		try pacman -Sy dhcpcd
+	einfo "Installing dhcpcd"
+	try pacman -Sy dhcpcd
 
-		enable_service dhcpcd
-	fi
+	enable_service dhcpcd
 
 	#if [[ $SYSTEMD == "true" ]]; then
 	#	# Enable systemd networking and dhcp
@@ -500,7 +500,7 @@ function main_install_arch_in_chroot() {  #TODO
 	if [[ ${#ADDITIONAL_PACKAGES[@]} -gt 0 ]]; then
 		einfo "Installing additional packages"
 		# shellcheck disable=SC2086
-		try pamcan -Sy "${ADDITIONAL_PACKAGES[@]}"
+		try pacman -Sy --noconfirm "${ADDITIONAL_PACKAGES[@]}"
 	fi
 
 	if ask "Do you want to assign a root password now?"; then
@@ -521,7 +521,7 @@ function main_install() {
 	[[ $# == 0 ]] || die "Too many arguments"
 
 	gentoo_umount
-	if [[ $GENTOO == "gentoo" ]]; then
+	if [[ $DISTRO == "gentoo" ]]; then
 		install_stage3
 
 		[[ $IS_EFI == "true" ]] \
