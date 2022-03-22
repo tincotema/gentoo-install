@@ -6,7 +6,9 @@ set -uo pipefail
 	&& { echo "This script must not be executed directly!" >&2; exit 1; }
 
 # Source the systems profile
-source /etc/profile
+if [[ $DISTRO == "gentoo" ]]; then
+	source /etc/profile
+fi
 
 # Set safe umask
 umask 0077
