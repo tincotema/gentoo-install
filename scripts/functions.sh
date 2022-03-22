@@ -842,6 +842,29 @@ function extract_stage3() {
 		|| die "Could not cd into '$TMP_DIR'"
 }
 
+run_pacstrap() {
+	mount_root
+	# Go to root directory
+	cd "$ROOT_MOUNTPOINT" \
+		|| die "Could not move to '$ROOT_MOUNTPOINT'"
+	# Ensure the directory is empty
+	find . -mindepth 1 -maxdepth 1 -not -name 'lost+found' \
+		| grep -q . \
+		&& die "root directory '$ROOT_MOUNTPOINT' is not empty"
+	if [[ $IS_EFI == "true" ]]; then
+		mount_by_partuuid "$PARTITION_UUID_EFI" "$ROOT_MOUNTPOINT/boot" \
+			|| die "Could not mount '$ROOT_MOUNTPOINT'/boot"
+	fi
+	einfo "Installing Archlinux with base packages"
+	if [[ $IS_EFI == "true" ]]; then
+		pacstrap "$ROOT_MOUNTPOINT" openssh git base base-devel man-db man-pages reflector efibootmgr linux linux-firmware \
+			|| die "Could not run pacstrap at '$ROOT_MOUNTPOINT'"
+	else
+		pacstrap "$ROOT_MOUNTPOINT" openssh git base base-devel man-db man-pages reflector linux linux-firmware \
+			|| die "Could not run pacstrap at '$ROOT_MOUNTPOINT'"
+	#TODO export not crucial packages into config
+}
+
 function gentoo_umount() {
 	if mountpoint -q -- "$ROOT_MOUNTPOINT"; then
 		einfo "Unmounting root filesystem"
