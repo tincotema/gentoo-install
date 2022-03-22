@@ -14,6 +14,15 @@ function install_stage3() {
 	extract_stage3
 }
 
+function install_arch() {
+	[[ $# == 0 ]] || die "Too many arguments"
+
+	prepare_installation_environment
+	apply_disk_configuration
+	run_pacstrap
+	
+}
+
 function configure_base_system() {
 	einfo "Generating locales"
 	echo "$LOCALES" > /etc/locale.gen \
@@ -21,7 +30,7 @@ function configure_base_system() {
 	locale-gen \
 		|| die "Could not generate locales"
 
-	if [[ $SYSTEMD == "true" ]]; then
+	if [[ $SYSTEMD == "true" || $DISTRO == "arch" ]]; then
 		einfo "Setting machine-id"
 		systemd-machine-id-setup \
 			|| die "Could not setup systemd machine id"
@@ -254,10 +263,14 @@ function generate_fstab() {
 	if [[ $USED_ZFS != "true" ]]; then
 		add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_ROOT")" "/" "$DISK_ID_ROOT_TYPE" "$DISK_ID_ROOT_MOUNT_OPTS" "0 1"
 	fi
-	if [[ $IS_EFI == "true" ]]; then
-		add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_EFI")" "/boot/efi" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
-	else
-		add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_BIOS")" "/boot/bios" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
+	if [[ $DISTRO == "gentoo" ]]; then
+		if [[ $IS_EFI == "true" ]]; then
+			add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_EFI")" "/boot/efi" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
+		else
+			add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_BIOS")" "/boot/bios" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
+		fi
+	elif [[$DISTRO == "arch" && $IS_EFI == "true" ]]
+		add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_EFI")" "/boot" "vfat" "defaults,noatime,fmask=0177,dmask=0077,noexec,nodev,nosuid,discard" "0 2"
 	fi
 	if [[ -v "DISK_ID_SWAP" ]]; then
 		add_fstab_entry "UUID=$(get_blkid_uuid_for_id "$DISK_ID_SWAP")" "none" "swap" "defaults,discard" "0 0"
@@ -411,15 +424,114 @@ EOF
 	einfo "You may now reboot your system."
 }
 
+function main_install_arch_in_chroot() {  #TODO
+	[[ $# == 0 ]] || die "Too many arguments"
+
+	# Remove the root password, making the account accessible for automated
+	# tasks during the period of installation.
+	einfo "Clearing root password"
+	passwd -d root \
+		|| die "Could not change root password"
+
+	if [[ $IS_EFI == "true" ]]; then
+		# Mount efi partition
+		mount_efivars
+		einfo "Mounting efi partition"
+		mount_by_id "$DISK_ID_EFI" "/boot/efi"
+	fi
+
+	# Sync pamcan
+	einfo "Syncing pacman and runing reflector"
+	try pacman -Sy
+	reflector --verbose --latest 100 --protocol https --sort rate --save /etc/pamcan.d/mirrorlist
+
+	# Configure basic system things like timezone, locale, ...
+	configure_base_system
+
+	# Install mdadm if we used raid (needed for uuid resolving)
+	if [[ $USED_RAID == "true" ]]; then
+		einfo "Installing mdadm"
+		try pacman -Sy mdadm
+	fi
+
+	# Install cryptsetup if we used luks
+	if [[ $USED_LUKS == "true" ]]; then
+		einfo "Installing cryptsetup"
+		try pacman -Sy cryptsetup
+	fi
+
+	# Install btrfs-progs if we used btrfs
+	if [[ $USED_BTRFS == "true" ]]; then
+		einfo "Installing btrfs-progs"
+		try pacman -Sy btrfs-progs
+	fi
+
+	# Generate a valid fstab file
+	generate_fstab
+
+	# Install and enable sshd
+	if [[ $INSTALL_SSHD == "true" ]]; then
+		install_sshd
+	fi
+
+	if [[ $SYSTEMD != "true" ]]; then
+		# Install and enable dhcpcd
+		einfo "Installing dhcpcd"
+		try pacman -Sy dhcpcd
+
+		enable_service dhcpcd
+	fi
+
+	#if [[ $SYSTEMD == "true" ]]; then
+	#	# Enable systemd networking and dhcp
+	#	enable_service systemd-networkd
+	#	enable_service systemd-resolved
+	#	echo -en "[Match]\nName=en*\n\n[Network]\nDHCP=yes" > /etc/systemd/network/20-wired-dhcp.network \
+	#		|| die "Could not write dhcp network config to '/etc/systemd/network/20-wired-dhcp.network'"
+	#	chown root:systemd-network /etc/systemd/network/20-wired-dhcp.network \
+	#		|| die "Could not change owner of '/etc/systemd/network/20-wired-dhcp.network'"
+	#	chmod 640 /etc/systemd/network/20-wired-dhcp.network \
+	#		|| die "Could not change permissions of '/etc/systemd/network/20-wired-dhcp.network'"
+	#fi
+
+	# Install additional packages, if any.
+	if [[ ${#ADDITIONAL_PACKAGES[@]} -gt 0 ]]; then
+		einfo "Installing additional packages"
+		# shellcheck disable=SC2086
+		try pamcan -Sy "${ADDITIONAL_PACKAGES[@]}"
+	fi
+
+	if ask "Do you want to assign a root password now?"; then
+		try passwd root
+		einfo "Root password assigned"
+	else
+		try passwd -d root
+		ewarn "Root password cleared, set one as soon as possible!"
+	fi
+
+	einfo "Arch installation complete."
+	[[ $USED_LUKS == "true" ]] \
+		&& einfo "A backup of your luks headers can be found at '$LUKS_HEADER_BACKUP_DIR', in case you want to have a backup."
+	einfo "You may now reboot your system."
+}
+
 function main_install() {
 	[[ $# == 0 ]] || die "Too many arguments"
 
 	gentoo_umount
-	install_stage3
+	if [[ $GENTOO == "gentoo" ]]; then
+		install_stage3
 
-	[[ $IS_EFI == "true" ]] \
-		&& mount_efivars
-	gentoo_chroot "$ROOT_MOUNTPOINT" "$GENTOO_INSTALL_REPO_BIND/install" __install_gentoo_in_chroot
+		[[ $IS_EFI == "true" ]] \
+			&& mount_efivars
+		gentoo_chroot "$ROOT_MOUNTPOINT" "$GENTOO_INSTALL_REPO_BIND/install" __install_gentoo_in_chroot
+	else
+		install_arch
+
+		[[ $IS_EFI == "true" ]] \
+			&& mount_efivars
+		gentoo_chroot "$ROOT_MOUNTPOINT" "$GENTOO_INSTALL_REPO_BIND/install" __install_arch_in_chroot
+	fi
 }
 
 function main_chroot() {
