@@ -99,6 +99,8 @@ function configure_portage() {
 		einfo "Adding ~$GENTOO_ARCH to ACCEPT_KEYWORDS"
 		echo "ACCEPT_KEYWORDS=\"~$GENTOO_ARCH\"" >> /etc/portage/make.conf \
 			|| die "Could not modify /etc/portage/make.conf"
+		chmod 644 /etc/portage/make.conf \
+			|| die "Could not chmod 644 /etc/portage/make.conf"
 	fi
 }
 
@@ -114,7 +116,7 @@ function install_sshd() {
 	if [[ -n "$ROOT_SSH_AUTHORIZED_KEYS" ]]; then
 		einfo "Adding authorized keys for root"
 		touch_or_die 0600 "/root/.ssh/authorized_keys"
-		echo "$ROOT_SSH_AUTHORIZED_KEYS" > "$ROOT_HOME/.ssh/authorized_keys" \
+		echo "$ROOT_SSH_AUTHORIZED_KEYS" > "/root/.ssh/authorized_keys" \
 			|| die "Could not add ssh key to /root/.ssh/authorized_keys"
 	fi
 }
