@@ -442,7 +442,19 @@ function main_install_arch_in_chroot() {  #TODO
 		mount_efivars
 		einfo "Mounting efi partition"
 		mount_by_id "$DISK_ID_EFI" "/boot"
-		try efibootmgr --verbose --create --disk "$gptdev" --part "$efipartnum" --label "arch" --loader '\vmlinuz.efi' --unicode 'initrd=\initramfs.img'" $(get_cmdline)"
+
+		# Create boot entry
+		einfo "Creating efi boot entry"
+		local efipartdev
+		efipartdev="$(resolve_device_by_id "$DISK_ID_EFI")" \
+			|| die "Could not resolve device with id=$DISK_ID_EFI"
+		efipartdev="$(realpath "$efipartdev")" \
+			|| die "Error in realpath '$efipartdev'"
+		local efipartnum="${efipartdev: -1}"
+		local gptdev
+		gptdev="$(resolve_device_by_id "${DISK_ID_PART_TO_GPT_ID[$DISK_ID_EFI]}")" \
+			|| die "Could not resolve device with id=${DISK_ID_PART_TO_GPT_ID[$DISK_ID_EFI]}"
+		try efibootmgr --verbose --create --disk "$gptdev" --part "$efipartnum" --label "arch" --loader '\vmlinuz-linux' --unicode 'initrd=\initramfs-linux.img'" $(get_cmdline)"
 	fi
 
 	# Sync pamcan
